@@ -1,8 +1,0 @@
-!DEF myFunction x
-@0
-D = M
-@15
-M = D
-!ENDDEF
-
-!CALL myFunction 1
