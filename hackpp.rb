@@ -175,6 +175,127 @@ M = D
       SETI
       return output
     }
+  },
+  {
+    name: 'goto',
+    trigger: '!GOTO',
+    args: ['location'],
+
+    action: -> loc {
+      return <<-GOTO
+@#{loc}
+0;JMP
+      GOTO
+    }
+  },
+  {
+    name: 'add',
+    trigger: '!ADD',
+    args: ['destination', 'amount'],
+
+    action: -> dest, amt {
+      if literal?(dest) || macro?(dest)
+        puts 'ERROR: Cannot assign to literals/macros'
+        exit 10
+      end
+      if macro?(amt)
+        puts 'ERROR: Cannot assign from macros'
+        exit 11
+      end
+      return <<-LOADAMT
+#{literal?(amt) || !address?(amt) ? '@' : ''}#{literal?(amt) ? amt[1..-1] : amt}
+D = #{literal?(amt) ? 'A' : 'M'}
+#{address?(dest) ? '' : '@'}#{dest}
+M = M + D
+      LOADAMT
+    }
+  },
+  {
+    name: 'subtract',
+    trigger: '!SUB',
+    args: ['destination', 'amount'],
+
+    action: -> dest, amt {
+      if literal?(dest) || macro?(dest)
+        puts 'ERROR: Cannot assign to literals/macros'
+        exit 10
+      end
+      if macro?(amt)
+        puts 'ERROR: Cannot assign from macros'
+        exit 11
+      end
+      return <<-LOADAMT
+#{literal?(amt) || !address?(amt) ? '@' : ''}#{literal?(amt) ? amt[1..-1] : amt}
+D = #{literal?(amt) ? 'A' : 'M'}
+#{address?(dest) ? '' : '@'}#{dest}
+M = M - D
+      LOADAMT
+    }
+  },
+  {
+    name: 'loop-while-nonzero',
+    trigger: '!WHILENZ',
+    args: ['value'],
+
+    action: -> v {
+      if macro?(v)
+        puts 'ERROR: Macros cannot have values'
+        exit 12
+      elsif literal?(v)
+        puts 'ERROR: While-loops don\'t take literals; consider using !LOOP'
+        exit 13
+      elsif address?(v)
+        v = v[1..-1]
+      end
+      output = ''
+      $n_loops += 1
+      return <<-WHILEHEAD
+(WHILE#{$n_loops})
+@#{v}
+D = M
+@ENDWHILE#{$n_loops}
+D;JEQ
+      WHILEHEAD
+    }
+  },
+  {
+    name: 'loop-while-zero',
+    trigger: '!WHILEZR',
+    args: ['value'],
+
+    action: -> v {
+      if macro?(v)
+        puts 'ERROR: Macros cannot have values'
+        exit 12
+      elsif literal?(v)
+        puts 'ERROR: While-loops don\'t take literals; consider using !LOOP'
+        exit 13
+      elsif address?(v)
+        v = v[1..-1]
+      end
+      output = ''
+      $n_loops += 1
+      return <<-WHILEHEAD
+(WHILE#{$n_loops})
+@#{v}
+D = M
+@ENDWHILE#{$n_loops}
+D;JNE
+      WHILEHEAD
+    }
+  },
+  {
+    name: 'end-while',
+    trigger: '!ENDWHILE',
+    args: [],
+
+    action: -> {
+      <<-ENDWHILE
+@WHILE#{$n_loops}
+0;JMP
+(ENDWHILE#{$n_loops})
+      ENDWHILE
+    }
   }
 ].freeze
 
