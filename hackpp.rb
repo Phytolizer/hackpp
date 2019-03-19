@@ -5,6 +5,19 @@
 
 require 'pathname'
 
+# check properties of a token
+def macro? x
+  x[0] == '!'
+end
+
+def literal? x
+  x[0] == '$'
+end
+
+def address? x
+  x[0] == '@'
+end
+
 # The file name to output to
 $output_file = 'result.asm'
 
@@ -90,18 +103,22 @@ M = D
       param_index = 0
       if params.respond_to? :each
         params.each do |p|
+          p_literal = literal?(p)
+          p = p[1..-1] if p_literal || address?(p)
           call_str << <<-CALLPARAM
-@#{param}
-D = A
+@#{p}
+D = #{p_literal ? 'A' : 'M'}
 @#{param_index}
 M = D
           CALLPARAM
           param_index += 1
         end
       elsif !params.nil?
+        p_literal = literal?(params)
+        params = params[1..-1] if p_literal || address?(params)
         call_str << <<-CALLPARAM
 @#{params}
-D = A
+D = #{p_literal ? 'A' : 'M'}
 @#{param_index}
 M = D
         CALLPARAM
@@ -126,6 +143,37 @@ M = D
 @LOOP#{$n_loops}
 0;JMP
       LOOP
+    }
+  },
+  {
+    name: 'set-identifier',
+    trigger: '!SET',
+    args: ['ident', 'value'],
+
+    action: -> i, v {
+      if literal?(i) || macro?(i)
+        puts 'ERROR: Cannot assign to literals/macros'
+        exit 10
+      end
+      if macro? v
+        puts 'ERROR: Cannot assign from macros'
+        exit 11
+      end
+      output = ''
+      # load v into D
+      v_literal = literal?(v)
+      v = v[1..-1] if v_literal || address?(v)
+      output << <<-LOADV
+@#{v}
+D = #{v_literal ? 'A' : 'M'}
+      LOADV
+      # load i from D
+      i = i[1..-1] if address?(i)
+      output << <<-SETI
+@#{i}
+M = D
+      SETI
+      return output
     }
   }
 ].freeze
@@ -156,7 +204,7 @@ def parse(line)
       exit 3
     end
     puts "Found macro '#{macro[:name]}'"
-    macro_args = line.chomp.split(/\b[,\s]\s*\b/)
+    macro_args = line.chomp.split(/(?<=[\S^])[,\s]\s*(?=[\S$])/)
     macro_args = macro_args[1...macro_args.length]
     # if macro_args.length < macro[:args].length
       # puts 'Not enough arguments to macro, missing ' <<
@@ -176,7 +224,7 @@ def parse(line)
   end
 end
 
-# Main procedure.
+# Main procedure
 if ARGV.empty?
   puts 'Usage: ruby hackpp.rb <filename>'
   exit 0
