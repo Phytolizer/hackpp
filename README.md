@@ -54,7 +54,14 @@ Here is a loop that will run 10 times:
 !SUB x $1
 !ENDWHILE
 ```
-While loops with more meaningful comparisons (e.g. `!WHILELT x y`) are planned for future releases.
+While loops with more meaningful comparisons (e.g. `!WHILELT x y`) are also possible.
+```c
+!SET x $0
+!WHILELT x $10
+!ADD x $1
+!ENDWHILE
+```
+This loop will also run 10 times, and the literals can be swapped out for addresses or identifiers.
 
 `!GOTO` is also a part of the language. It forces a jump to an existing label.
 
