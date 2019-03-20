@@ -458,7 +458,7 @@ end
 
 # Main procedure
 if ARGV.empty?
-  puts 'Usage: ruby hackpp.rb <filename>'
+  puts 'Usage: ./hackpp <filename>'
   exit 0
 end
 
