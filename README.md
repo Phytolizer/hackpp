@@ -1,9 +1,6 @@
 # hackpp
 A preprocessor for Hack.
 
-# Dependencies
-Ruby version 2.2 or higher
-
 # Usage
 To compile to Hack ASM:
 `ruby hackpp.rb <filename> [-o <output-filename>]`
