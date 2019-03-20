@@ -18,6 +18,19 @@ def address? x
   x[0] == '@'
 end
 
+
+def load_to_d(val)
+  get_value(val) << "\nD = #{a_m(val)}"
+end
+
+def get_value(val)
+  "#{address?(val) ? '' : '@'}#{literal?(val) ? val[1..-1] : val}"
+end
+
+def a_m(val)
+  "#{literal?(val) ? 'A' : 'M'}"
+end
+
 # The file name to output to
 $output_file = 'result.asm'
 
@@ -103,22 +116,16 @@ M = D
       param_index = 0
       if params.respond_to? :each
         params.each do |p|
-          p_literal = literal?(p)
-          p = p[1..-1] if p_literal || address?(p)
           call_str << <<-CALLPARAM
-@#{p}
-D = #{p_literal ? 'A' : 'M'}
+#{load_to_d(p)}
 @#{param_index}
 M = D
           CALLPARAM
           param_index += 1
         end
       elsif !params.nil?
-        p_literal = literal?(params)
-        params = params[1..-1] if p_literal || address?(params)
         call_str << <<-CALLPARAM
-@#{params}
-D = #{p_literal ? 'A' : 'M'}
+#{load_to_d(params)}
 @#{param_index}
 M = D
         CALLPARAM
@@ -161,18 +168,9 @@ M = D
       end
       output = ''
       # load v into D
-      v_literal = literal?(v)
-      v = v[1..-1] if v_literal || address?(v)
-      output << <<-LOADV
-@#{v}
-D = #{v_literal ? 'A' : 'M'}
-      LOADV
+      output << load_to_d(v) << "\n"
       # load i from D
-      i = i[1..-1] if address?(i)
-      output << <<-SETI
-@#{i}
-M = D
-      SETI
+      output << get_value(i) << "\nM = D\n"
       return output
     }
   },
@@ -202,12 +200,7 @@ M = D
         puts 'ERROR: Cannot assign from macros'
         exit 11
       end
-      return <<-LOADAMT
-#{literal?(amt) || !address?(amt) ? '@' : ''}#{literal?(amt) ? amt[1..-1] : amt}
-D = #{literal?(amt) ? 'A' : 'M'}
-#{address?(dest) ? '' : '@'}#{dest}
-M = M + D
-      LOADAMT
+      return load_to_d(amt) << "\n" << get_value(dest) << "\nM = M + D\n"
     }
   },
   {
@@ -224,12 +217,7 @@ M = M + D
         puts 'ERROR: Cannot assign from macros'
         exit 11
       end
-      return <<-LOADAMT
-#{literal?(amt) || !address?(amt) ? '@' : ''}#{literal?(amt) ? amt[1..-1] : amt}
-D = #{literal?(amt) ? 'A' : 'M'}
-#{address?(dest) ? '' : '@'}#{dest}
-M = M - D
-      LOADAMT
+      return load_to_d(amt) << "\n" << get_value(dest) << "\nM = M - D\n"
     }
   },
   {
@@ -244,14 +232,12 @@ M = M - D
       elsif literal?(v)
         puts 'ERROR: While-loops don\'t take literals; consider using !LOOP'
         exit 13
-      elsif address?(v)
-        v = v[1..-1]
       end
       output = ''
       $n_loops += 1
       return <<-WHILEHEAD
 (WHILE#{$n_loops})
-@#{v}
+#{get_value(v)}
 D = M
 @ENDWHILE#{$n_loops}
 D;JEQ
@@ -270,18 +256,143 @@ D;JEQ
       elsif literal?(v)
         puts 'ERROR: While-loops don\'t take literals; consider using !LOOP'
         exit 13
-      elsif address?(v)
-        v = v[1..-1]
       end
       output = ''
       $n_loops += 1
       return <<-WHILEHEAD
 (WHILE#{$n_loops})
-@#{v}
+#{get_value(v)}
 D = M
 @ENDWHILE#{$n_loops}
 D;JNE
       WHILEHEAD
+    }
+  },
+  {
+    name: 'while-less-than',
+    trigger: '!WHILELT',
+    args: ['x', 'y'],
+
+    action: -> x, y {
+      # y - x;JLE
+      if macro?(y) || macro?(x)
+        puts 'ERROR: Macros cannot have values'
+        exit 12
+      end
+      $n_loops += 1
+      return <<-WHILELT
+(WHILE#{$n_loops})
+#{load_to_d(x)}
+#{get_value(y)}
+D = D - #{a_m(y)}
+@ENDWHILE#{$n_loops}
+D;JGE
+      WHILELT
+    }
+  },
+  {
+    name: 'while-less-than-or-equal',
+    trigger: '!WHILELE',
+    args: ['x', 'y'],
+
+    action: -> x, y {
+      if macro?(y) || macro?(x)
+        puts 'ERROR: Macros cannot have values'
+        exit 12
+      end
+      $n_loops += 1
+      return <<-WHILELE
+(WHILE#{$n_loops})
+#{load_to_d(x)}
+#{get_value(y)}
+D = D - #{a_m(y)}
+@ENDWHILE#{$n_loops}
+D;JGT
+      WHILELE
+    }
+  },
+  {
+    name: 'while-equal',
+    trigger: '!WHILEEQ',
+    args: ['x', 'y'],
+
+    action: -> x, y {
+      if macro?(y) || macro?(x)
+        puts 'ERROR: Macros cannot have values'
+        exit 12
+      end
+      $n_loops += 1
+      return <<-WHILEEQ
+(WHILE#{$n_loops})
+#{load_to_d(x)}
+#{get_value(y)}
+D = D - #{a_m(y)}
+@ENDWHILE#{$n_loops}
+D;JNE
+      WHILEEQ
+    }
+  },
+  {
+    name: 'while-greater-than-or-equal',
+    trigger: '!WHILEGE',
+    args: ['x', 'y'],
+
+    action: -> x, y {
+      if macro?(y) || macro?(x)
+        puts 'ERROR: Macros cannot have values'
+        exit 12
+      end
+      $n_loops += 1
+      return <<-WHILEGE
+(WHILE#{$n_loops})
+#{load_to_d(x)}
+#{get_value(y)}
+D = D - #{a_m(y)}
+@ENDWHILE#{$n_loops}
+D;JLT
+      WHILEGE
+    }
+  },
+  {
+    name: 'while-greater-than',
+    trigger: '!WHILEGT',
+    args: ['x', 'y'],
+
+    action: -> x, y {
+      if macro?(y) || macro?(x)
+        puts 'ERROR: Macros cannot have values'
+        exit 12
+      end
+      $n_loops += 1
+      return <<-WHILEGT
+(WHILE#{$n_loops})
+#{load_to_d(x)}
+#{get_value(y)}
+D = D - #{a_m(y)}
+@ENDWHILE#{$n_loops}
+D;JLE
+      WHILEGT
+    }
+  },
+  {
+    name: 'while-not-equal',
+    trigger: '!WHILENE',
+    args: ['x', 'y'],
+
+    action: -> x, y {
+      if macro?(y) || macro?(x)
+        puts 'ERROR: Macros cannot have values'
+        exit 12
+      end
+      $n_loops += 1
+      return <<-WHILENE
+(WHILE#{$n_loops})
+#{load_to_d(x)}
+#{get_value(y)}
+D = D - #{a_m(y)}
+@ENDWHILE#{$n_loops}
+D;JEQ
+      WHILENE
     }
   },
   {
