@@ -13,7 +13,7 @@ On Linux and OS X:
 
 On Windows:
 
-```./hackpp.bat <filename> [-o <output-filename>]```
+```.\hackpp.bat <filename> [-o <output-filename>]```
 
 If `-o` is not passed, the output will be in `result.asm`.
 
