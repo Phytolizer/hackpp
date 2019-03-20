@@ -48,6 +48,7 @@ You can also call functions with variable arguments, as you might expect.
 
 ### Looping and control flow
 Unconditional looping is done with `!LOOP`. This is useful at the end of a program's execution.
+
 `!WHILENZ` will loop its body until its argument is zero. `!WHILEZR` does the opposite.
 Here is a loop that will run 10 times:
 ```c
@@ -56,6 +57,11 @@ Here is a loop that will run 10 times:
 !SUB x $1
 !ENDWHILE
 ```
+While loops with more meaningful comparisons (e.g. `!WHILELT x y`) are planned for future releases.
+
+`!GOTO` is also a part of the language. It forces a jump to an existing label.
 
 ### Math
+All math operations are performed in-place -- that is, the result is stored in the first operand.
+
 Right now, you can only add or subtract two values. `!ADD x $1` adds 1 to x and stores it in x. `!SUB x $10` subtracts 10 from x and stores it in x.
