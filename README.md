@@ -4,6 +4,7 @@ A preprocessor for Hack.
 # Usage
 To compile to Hack ASM:
 `ruby hackpp.rb <filename> [-o <output-filename>]`
+
 If `-o` is not passed, the output will be in `result.asm`.
 
 # Features
