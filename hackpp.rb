@@ -5,22 +5,47 @@
 
 require 'pathname'
 
+# Exceptions
+class TokenError < StandardError; end
+
+class Token
+  def initialize(value)
+    @type = token_type(value)
+    if @type.nil?
+      raise TokenError, "Token #{value} is invalid (must start with !, @, or $"
+    end
+    @value = value[1..-1]
+    if @value.empty?
+      raise TokenError, "Token #{value} is invalid (needs a value)"
+    end
+  end
+end
+
 # check properties of a token
 def macro? x
   x[0] == '!'
 end
 
-def literal? x
-  x[0] == '$'
+def token_type(token)
+  case token[0]
+  when '!' :macro
+  when '@' :address
+  when '$' :literal
+  else nil
 end
 
-def address? x
-  x[0] == '@'
+class Parser
+  def initialize(file_name)
+  end
 end
 
+def load_to_d(token, type)
+  "@#{token}
+  D = #{type == :literal ? 'A' : 'M'}"
+end
 
-def load_to_d(val)
-  get_value(val) << "\nD = #{a_m(val)}"
+def load_to_a(token)
+  "@#{token}"
 end
 
 def get_value(val)
