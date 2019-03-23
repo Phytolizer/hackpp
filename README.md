@@ -1,12 +1,21 @@
 # hackpp
 A preprocessor for Hack.
 
-# Dependencies
-Ruby version 2.2 or higher
-
 # Usage
-To compile to Hack ASM:
-`ruby hackpp.rb <filename> [-o <output-filename>]`
+Extract the file. (`tar xzf hackpp-<platform>.tar.gz` on Linux and OS X)
+
+To run it, you must use the command line.
+Enter the extracted directory on the command line and type the following.
+
+On Linux and OS X:
+
+```./hackpp <filename> [-o <output-filename>]```
+
+On Windows:
+
+```.\hackpp.bat <filename> [-o <output-filename>]```
+
+If `-o` is not passed, the output will be in `result.asm`.
 
 # Features
 ## Representation of literals, addresses, and identifiers
@@ -57,7 +66,14 @@ Here is a loop that will run 10 times:
 !SUB x $1
 !ENDWHILE
 ```
-While loops with more meaningful comparisons (e.g. `!WHILELT x y`) are planned for future releases.
+While loops with more meaningful comparisons (e.g. `!WHILELT x y`) are also possible.
+```c
+!SET x $0
+!WHILELT x $10
+!ADD x $1
+!ENDWHILE
+```
+This loop will also run 10 times, and the literals can be swapped out for addresses or identifiers.
 
 `!GOTO` is also a part of the language. It forces a jump to an existing label.
 
