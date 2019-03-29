@@ -104,7 +104,7 @@ You can have mutually exclusive code branches by using the `#ELSE` macro. Exampl
 #ENDIF
 ```
 
-`!GOTO` is also a part of the language. It forces a jump to an existing label.
+`#GOTO` is also a part of the language. It forces a jump to an existing label.
 
 ### Math
 All math operations are performed in-place -- that is, the result is stored in the first operand.
