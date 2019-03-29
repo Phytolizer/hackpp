@@ -1,5 +1,5 @@
 # hackpp
-A preprocessor for Hack.
+A preprocessor for the Hack ASM language.
 
 # Usage
 Extract the file. (`tar xzf hackpp-<platform>.tar.gz` on Linux and OS X)
