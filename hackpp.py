@@ -110,7 +110,7 @@ def sub_uncond_loop():
     LINES[Parser.idx] = f"(loop{Parser.n_loops})"
 
 
-def inverseOf(cond):
+def inverse_of(cond):
     inv = { 'LT': 'GE', 'LE': 'GT', 'EQ': 'NE', 'GE': 'LT', 'GT': 'LE', 'NE': 'EQ' }
     return inv[cond]
 
@@ -124,7 +124,7 @@ def sub_cond_loop(op1, op2):
     out += load_to_a(op2)
     out += f"D = D - {'A' if op2.type == tLiteral else 'M'}\n"
     out += f"@endloop{Parser.n_loops}\n"
-    out += f"D;J{inverseOf(cond)}\n"
+    out += f"D;J{inverse_of(cond)}\n"
     LINES[Parser.idx] = out
 
 
@@ -179,6 +179,46 @@ def sub_set(var, val):
     LINES[Parser.idx] = out
 
 
+def sub_if(op1, op2):
+    Parser.n_ifs += 1
+    cond = re.match(r'^\s*#IF(LT|LE|EQ|GE|GT|NE)', LINES[Parser.idx]).group(1)
+    # perform a lookahead substitution
+    # is there an else branch?
+    has_else = False
+    matched_end = False
+    depth = 0
+    i = Parser.idx + 1
+    for line in LINES[Parser.idx + 1:]:
+        # nested if
+        if re.match(r'^\s*#IF(LT|LE|EQ|GE|GT|NE)', line) is not None:
+            depth += 1
+        # else
+        if re.match(r'^\s*#ELSE', line) is not None:
+            if depth == 0:
+                LINES[i] = f"@endif{Parser.n_ifs}\n0;JMP\n(else{Parser.n_ifs})"
+                has_else = True
+        # endif
+        if re.match(r'^\s*#ENDIF', line) is not None:
+            if depth == 0:
+                LINES[i] = f"(endif{Parser.n_ifs})\n"
+                matched_end = True
+            else:
+                depth -= 1
+        i += 1
+    if matched_end:
+        out = load_to_d(op2)
+        out += load_to_a(op1)
+        out += f"D = D - {'A' if op1.type == tLiteral else 'M'}\n"
+        if has_else:
+            out += f"@else{Parser.n_ifs}\n"
+        else:
+            out += f"@endif{Parser.n_ifs}\n"
+        out += f"D;J{inverse_of(cond)}\n"
+        LINES[Parser.idx] = out
+    else:
+        raise MismatchedEndError()
+
+
 class Macro:
     def __init__(self, n_args, substitution, paired=False):
         self.n_args = n_args
@@ -191,7 +231,8 @@ class Macros:
                        '#LOOP': Macro(0, sub_uncond_loop), '#BREAK': Macro(0, sub_break_loop),
                        '#ENDLOOP': Macro(0, sub_end_loop), '#ADD': Macro(2, sub_add), '#SUB': Macro(2, sub_subtract),
                        '#SET': Macro(2, sub_set) }
-    regex_macros = { re.compile('#LOOP(LT|LE|EQ|GE|GT|NE)'): Macro(2, sub_cond_loop) }
+    regex_macros = { re.compile('#LOOP(LT|LE|EQ|GE|GT|NE)'): Macro(2, sub_cond_loop),
+                     re.compile('#IF(LT|LE|EQ|GE|GT|NE)'): Macro(2, sub_if) }
 
 
 class ArgumentError(Exception):
@@ -205,6 +246,7 @@ class Parser:
     idx = 0
     n_rets = 0
     n_loops = 0
+    n_ifs = 0
 
     def __init__(self, file):
         self.file = file

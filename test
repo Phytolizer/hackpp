@@ -14,3 +14,8 @@
 #SET @0 :4
 #SET @1 :6
 #CALL :mult
+#IFEQ @15 :24
+#SET @0 :420
+#ELSE
+#SET @0 :69
+#ENDIF
