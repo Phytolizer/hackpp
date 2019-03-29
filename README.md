@@ -84,6 +84,25 @@ While loops with meaningful comparisons (e.g. `#LOOPLT @x @y`) are also possible
 ```
 This loop will also run 10 times, and the literals can be swapped out for addresses or identifiers.
 
+Conditional branching is done with the variants of `#IF`:
+* `#IFLT`: x < y
+* `#IFLE`: x <= y
+* `#IFEQ`: x == y
+* `#IFGE`: x >= y
+* `#IFGT`: x > y
+* `#IFNE`: x != y
+You can have mutually exclusive code branches by using the `#ELSE` macro. Example:
+```c
+#SET @x :2
+#SET @y :3
+
+#IFLT @x @y
+#SET @z :1
+#ELSE
+#SET @z :0
+#ENDIF
+```
+
 `!GOTO` is also a part of the language. It forces a jump to an existing label.
 
 ### Math
