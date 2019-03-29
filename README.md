@@ -2,10 +2,9 @@
 A preprocessor for the Hack ASM language.
 
 # Usage
-Extract the file. (`tar xzf hackpp-<platform>.tar.gz` on Linux and OS X)
 
-To run it, you must use the command line.
-Enter the extracted directory on the command line and type the following.
+To run the preprocessor, you must use the command line.
+Enter the directory where you downloaded HackPP on the command line and type the following.
 
 On Linux:
 
