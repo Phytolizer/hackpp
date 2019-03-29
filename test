@@ -1,16 +1,16 @@
-#GOTO       main
+#GOTO :main
 
-#DEF myFunction
-@15
-M = 0
+#DEF :mult
+
+#SET @15 :0
+#SET @2 @0
+#LOOPGT @2 :0
+#ADD @15 @1
+#SUB @2 :1
+#ENDLOOP
 #ENDDEF
 
 (main)
-@3
-M = 1
-#CALL myFunction
-#LOOP
-@4
-M = 1
-#BREAK
-#ENDLOOP
+#SET @0 :4
+#SET @1 :6
+#CALL :mult

@@ -63,7 +63,7 @@ class Token:
         self.type = token_type(value)
         if self.type is None:
             raise InvalidTokenPrefixError(value)
-        self.value = value[1:-1]
+        self.value = value[1:]
         if len(self.value) == 0:
             raise InvalidTokenValueError(value)
 
@@ -72,10 +72,10 @@ def sub_goto(label):
     # look for corresponding label
     for line in LINES:
         dest_label = LABEL_PATTERN.match(line)
-        if dest_label is not None and dest_label.group(1) == label:
-            LINES[Parser.idx] = f"@{label}\n0;JMP\n"
+        if dest_label is not None and dest_label.group(1) == label.value:
+            LINES[Parser.idx] = f"@{label.value}\n0;JMP\n"
             return
-    raise LabelNotFoundError(label)
+    raise LabelNotFoundError(label.value)
 
 
 def sub_def(name):
@@ -88,26 +88,44 @@ def sub_def(name):
         end = ENDDEF_PATTERN.match(line)
         if end is not None:
             LINES[i] = "@ret\nA = M\n0;JMP\n"
-            LINES[Parser.idx] = f"({name})\n"
+            LINES[Parser.idx] = f"({name.value})\n"
             return
         i += 1
-    raise NotTerminatedError(f"Function {name}")
+    raise NotTerminatedError(f"Function {name.value}")
 
 
 def sub_call(name):
     i = Parser.idx - 1
     for line in LINES[Parser.idx - 1::-1]:
         func = re.match(r'^\s*\((\S+)\)', line)
-        if func is not None and func.group(1) == name:
+        if func is not None and func.group(1) == name.value:
             Parser.n_rets += 1
-            LINES[Parser.idx] = f"@ret{Parser.n_rets}\nD=A\n@ret\nM=D\n@{name}\n0;JMP\n(ret{Parser.n_rets})\n"
+            LINES[Parser.idx] = f"@ret{Parser.n_rets}\nD=A\n@ret\nM=D\n@{name.value}\n0;JMP\n(ret{Parser.n_rets})\n"
             return
-    raise NotDefinedError(name)
+    raise NotDefinedError(name.value)
 
 
 def sub_uncond_loop():
     Parser.n_loops += 1
     LINES[Parser.idx] = f"(loop{Parser.n_loops})"
+
+
+def inverseOf(cond):
+    inv = { 'LT': 'GE', 'LE': 'GT', 'EQ': 'NE', 'GE': 'LT', 'GT': 'LE', 'NE': 'EQ' }
+    return inv[cond]
+
+
+def sub_cond_loop(op1, op2):
+    Parser.n_loops += 1
+    cond = re.match(r'^\s*#LOOP(LT|LE|EQ|GE|GT|NE)', LINES[Parser.idx]).group(1)
+    out = f"(loop{Parser.n_loops})\n"
+    # check condition
+    out += load_to_d(op1)
+    out += load_to_a(op2)
+    out += f"D = D - {'A' if op2.type == tLiteral else 'M'}\n"
+    out += f"@endloop{Parser.n_loops}\n"
+    out += f"D;J{inverseOf(cond)}\n"
+    LINES[Parser.idx] = out
 
 
 def sub_break_loop():
@@ -140,6 +158,27 @@ def sub_end_loop():
     raise MismatchedEndError()
 
 
+def sub_add(dest, amt):
+    out = load_to_d(amt)
+    out += load_to_a(dest)
+    out += "M = M + D"
+    LINES[Parser.idx] = out
+
+
+def sub_subtract(dest, amt):
+    out = load_to_d(amt)
+    out += load_to_a(dest)
+    out += "M = M - D"
+    LINES[Parser.idx] = out
+
+
+def sub_set(var, val):
+    out = load_to_d(val)
+    out += load_to_a(var)
+    out += 'M = D'
+    LINES[Parser.idx] = out
+
+
 class Macro:
     def __init__(self, n_args, substitution, paired=False):
         self.n_args = n_args
@@ -150,7 +189,9 @@ class Macro:
 class Macros:
     defined_macros = { '#GOTO': Macro(1, sub_goto), '#DEF': Macro(1, sub_def), '#CALL': Macro(1, sub_call),
                        '#LOOP': Macro(0, sub_uncond_loop), '#BREAK': Macro(0, sub_break_loop),
-                       '#ENDLOOP': Macro(0, sub_end_loop) }
+                       '#ENDLOOP': Macro(0, sub_end_loop), '#ADD': Macro(2, sub_add), '#SUB': Macro(2, sub_subtract),
+                       '#SET': Macro(2, sub_set) }
+    regex_macros = { re.compile('#LOOP(LT|LE|EQ|GE|GT|NE)'): Macro(2, sub_cond_loop) }
 
 
 class ArgumentError(Exception):
@@ -173,12 +214,22 @@ class Parser:
             if line[0] == '#':
                 tokens = TOKENIZING_PATTERN.split(line)
                 print(tokens)
+                macro = None
                 if tokens[0] not in Macros.defined_macros:
-                    raise InvalidMacroError(tokens[0])
-                macro = Macros.defined_macros[tokens[0]]
+                    matches_a_regex = False
+                    for regex in Macros.regex_macros.keys():
+                        if regex.match(tokens[0]):
+                            matches_a_regex = True
+                            macro = Macros.regex_macros[regex]
+                            break
+                    if not matches_a_regex:
+                        raise InvalidMacroError(tokens[0])
+                else:
+                    macro = Macros.defined_macros[tokens[0]]
                 if len(tokens[1:]) != macro.n_args:
                     raise ArgumentError(tokens[0])
-                macro.substitute(*tokens[1:])
+                token_objs = list(map(Token, tokens[1:]))
+                macro.substitute(*token_objs)
                 print(LINES[Parser.idx])
             else:
                 print(line)
@@ -203,7 +254,7 @@ def load_to_d(token):
 
 
 def load_to_a(token):
-    return f"@{token.value}"
+    return f"@{token.value}\n"
 
 
 class InvalidArgument(Exception):
