@@ -63,7 +63,17 @@ You can also call functions with variable arguments, as you might expect.
 ```
 
 ### Looping and control flow
-Unconditional looping is done with `#LOOP`. This is useful at the end of a program's execution.
+Unconditional looping is done with `#LOOP`. This is useful at the end of a program's execution. You can also break out of a loop with `#BREAK`.
+
+```c
+#SET @x :0
+#LOOP
+#IFGT @x :10
+#BREAK
+#ENDIF
+#ADD @x :1
+#ENDLOOP
+```
 
 While loops with meaningful comparisons (e.g. `#LOOPLT @x @y`) are also possible.
 ```c
