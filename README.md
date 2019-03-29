@@ -14,7 +14,9 @@ On OS X and Windows:
 
 ```python hackpp.py <filename> [-o <output-filename>]```
 
-If `-o` is not passed, the output will be in `result.asm`.
+If `-o` is not passed, the output will be in `output.asm`.
+
+After passing your code through the preprocessor, you still have to assemble it using the Assembler provided in the nand2tetris tools.
 
 # Features
 ## Representation of addresses and identifiers
