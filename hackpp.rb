@@ -73,7 +73,7 @@ $n_loops = 0
 
 # A list of all defined macros. The parser will check all macros in this list
 # by their :trigger attribute.
-MACROS = [
+macros = [
   {
     name: 'function-define',
     trigger: '!DEF',
@@ -435,7 +435,7 @@ D;JEQ
   }
 ].freeze
 
-ARGUMENTS = [
+arguments = [
   {
     name: 'output-file',
     trigger: '-o',

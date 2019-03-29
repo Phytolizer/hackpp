@@ -1,0 +1,16 @@
+#GOTO       main
+
+#DEF myFunction
+@15
+M = 0
+#ENDDEF
+
+(main)
+@3
+M = 1
+#CALL myFunction
+#LOOP
+@4
+M = 1
+#BREAK
+#ENDLOOP
