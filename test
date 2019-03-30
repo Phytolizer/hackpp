@@ -1,21 +1,21 @@
 #GOTO :main
 
 #DEF :mult
-
-#SET @15 :0
-#SET @2 @0
-#LOOPGT @2 :0
-#ADD @15 @1
-#SUB @2 :1
-#ENDLOOP
+    #SET @15 :0
+    #SET @2 @0
+    #LOOPGT @2 :0
+        #ADD @15 @1
+        #SUB @2 :1
+    #ENDLOOP
 #ENDDEF
 
 (main)
 #SET @0 :4
 #SET @1 :6
 #CALL :mult
+
 #IFEQ @15 :24
-#SET @0 :420
+    #SET @accurate :1
 #ELSE
-#SET @0 :69
+    #SET @accurate :0
 #ENDIF
