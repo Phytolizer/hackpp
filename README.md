@@ -2,10 +2,9 @@
 A preprocessor for the Hack ASM language.
 
 # Usage
-Extract the file. (`tar xzf hackpp-<platform>.tar.gz` on Linux and OS X)
 
-To run it, you must use the command line.
-Enter the extracted directory on the command line and type the following.
+To run the preprocessor, you must use the command line.
+Enter the directory where you downloaded HackPP on the command line and type the following.
 
 On Linux:
 
@@ -15,7 +14,9 @@ On OS X and Windows:
 
 ```python hackpp.py <filename> [-o <output-filename>]```
 
-If `-o` is not passed, the output will be in `result.asm`.
+If `-o` is not passed, the output will be in `output.asm`.
+
+After passing your code through the preprocessor, you still have to assemble it using the Assembler provided in the nand2tetris tools.
 
 # Features
 ## Representation of addresses and identifiers
@@ -63,7 +64,17 @@ You can also call functions with variable arguments, as you might expect.
 ```
 
 ### Looping and control flow
-Unconditional looping is done with `#LOOP`. This is useful at the end of a program's execution.
+Unconditional looping is done with `#LOOP`. This is useful at the end of a program's execution. You can also break out of a loop with `#BREAK`.
+
+```c
+#SET @x :0
+#LOOP
+#IFGT @x :10
+#BREAK
+#ENDIF
+#ADD @x :1
+#ENDLOOP
+```
 
 While loops with meaningful comparisons (e.g. `#LOOPLT @x @y`) are also possible.
 ```c
@@ -74,7 +85,27 @@ While loops with meaningful comparisons (e.g. `#LOOPLT @x @y`) are also possible
 ```
 This loop will also run 10 times, and the literals can be swapped out for addresses or identifiers.
 
-`!GOTO` is also a part of the language. It forces a jump to an existing label.
+Conditional branching is done with the variants of `#IF`:
+* `#IFLT`: x < y
+* `#IFLE`: x <= y
+* `#IFEQ`: x == y
+* `#IFGE`: x >= y
+* `#IFGT`: x > y
+* `#IFNE`: x != y
+
+You can have mutually exclusive code branches by using the `#ELSE` macro. Example:
+```c
+#SET @x :2
+#SET @y :3
+
+#IFLT @x @y
+#SET @z :1
+#ELSE
+#SET @z :0
+#ENDIF
+```
+
+`#GOTO` is also a part of the language. It forces a jump to an existing label.
 
 ### Math
 All math operations are performed in-place -- that is, the result is stored in the first operand.
