@@ -253,6 +253,7 @@ class Parser:
 
     def parse(self):
         for line in LINES:
+            line = re.match(r'\s*(.*)', line).group(1)
             if line[0] == '#':
                 tokens = TOKENIZING_PATTERN.split(line)
                 print(tokens)
