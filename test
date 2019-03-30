@@ -1,5 +1,6 @@
 #GOTO :main
 
+// test comment
 #DEF :mult
     #SET @15 :0
     #SET @2 @0
@@ -19,3 +20,7 @@
 #ELSE
     #SET @accurate :0
 #ENDIF
+
+// end of program, prevent PC overflow
+#LOOP
+#ENDLOOP

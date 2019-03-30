@@ -73,7 +73,7 @@ def sub_goto(label):
     for line in LINES:
         dest_label = LABEL_PATTERN.match(line)
         if dest_label is not None and dest_label.group(1) == label.value:
-            LINES[Parser.idx] = f"@{label.value}\n0;JMP\n"
+            LINES[Parser.idx] = f"@{label.value}\n0;JMP"
             return
     raise LabelNotFoundError(label.value)
 
@@ -87,8 +87,8 @@ def sub_def(name):
             raise NestedFunctionError(nested_def.group(1))
         end = ENDDEF_PATTERN.match(line)
         if end is not None:
-            LINES[i] = "@ret\nA = M\n0;JMP\n"
-            LINES[Parser.idx] = f"({name.value})\n"
+            LINES[i] = "@ret\nA = M\n0;JMP"
+            LINES[Parser.idx] = f"({name.value})"
             return
         i += 1
     raise NotTerminatedError(f"Function {name.value}")
@@ -100,7 +100,7 @@ def sub_call(name):
         func = re.match(r'^\s*\((\S+)\)', line)
         if func is not None and func.group(1) == name.value:
             Parser.n_rets += 1
-            LINES[Parser.idx] = f"@ret{Parser.n_rets}\nD=A\n@ret\nM=D\n@{name.value}\n0;JMP\n(ret{Parser.n_rets})\n"
+            LINES[Parser.idx] = f"@ret{Parser.n_rets}\nD=A\n@ret\nM=D\n@{name.value}\n0;JMP\n(ret{Parser.n_rets})"
             return
     raise NotDefinedError(name.value)
 
@@ -124,7 +124,7 @@ def sub_cond_loop(op1, op2):
     out += load_to_a(op2)
     out += f"D = D - {'A' if op2.type == tLiteral else 'M'}\n"
     out += f"@endloop{Parser.n_loops}\n"
-    out += f"D;J{inverse_of(cond)}\n"
+    out += f"D;J{inverse_of(cond)}"
     LINES[Parser.idx] = out
 
 
@@ -200,7 +200,7 @@ def sub_if(op1, op2):
         # endif
         if re.match(r'^\s*#ENDIF', line) is not None:
             if depth == 0:
-                LINES[i] = f"(endif{Parser.n_ifs})\n"
+                LINES[i] = f"(endif{Parser.n_ifs})"
                 matched_end = True
             else:
                 depth -= 1
@@ -213,7 +213,7 @@ def sub_if(op1, op2):
             out += f"@else{Parser.n_ifs}\n"
         else:
             out += f"@endif{Parser.n_ifs}\n"
-        out += f"D;J{inverse_of(cond)}\n"
+        out += f"D;J{inverse_of(cond)}"
         LINES[Parser.idx] = out
     else:
         raise MismatchedEndError()
