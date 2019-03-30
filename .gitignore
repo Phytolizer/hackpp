@@ -211,4 +211,6 @@ fabric.properties
 
 *.asm
 *.hack
+Rakefile
+hackpp.rb
 assembler/
