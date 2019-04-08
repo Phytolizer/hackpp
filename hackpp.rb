@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 class ParsingError < RuntimeError
 end
 
@@ -18,6 +20,8 @@ def parse_cli_args
         when 'v'
           puts 'Running in verbose mode.'
           Options.verbose = true
+        when 'h'
+          print_help(long: true)
         else
           raise ParsingError, %(Invalid option "#{ARGV[i]}")
         end
@@ -30,9 +34,21 @@ def parse_cli_args
   print_help if Options.in_f.nil?
 end
 
-def print_help
-  %(Usage: #{ARGV[0]} [-v] filename [-o outputfile]
-Type "#{ARGV[0]} -h" for more information.)
+def print_help(long: false)
+  if long
+    puts %(ruby #{$PROGRAM_NAME} -- Converts Hack VM code into Hack ASM.
+Written by Kyle Coffey.
+Usage: ruby #{$PROGRAM_NAME} [-v] filename [-o outputfile]
+Options:
+  -h   Print this help message.
+  -v   Enable verbose output.
+  -o outputfile   Store output in outputfile. Default: output.asm
+    )
+  else
+    puts %(Usage: ruby #{$PROGRAM_NAME} [-v] filename [-o outputfile]
+Type "ruby #{$PROGRAM_NAME} -h" for more information.)
+  end
+  exit(0)
 end
 
 # Command-line options
@@ -50,6 +66,10 @@ def vputs(*args)
   puts(*args) if Options.verbose
 end
 
+def vp(*args)
+  p(*args) if Options.verbose
+end
+
 # Contains methods for all transformations involved
 # when parsing Hack VM code as well as some helper methods to
 # validate syntax.
@@ -57,34 +77,47 @@ module COMMANDS
   COMMAND_PATTERN = /[\w\-\h]+/.freeze
   TOKENIZER = /([\w\-]+)\h*/.freeze
 
-  def self.tokenize(command)
+  def self.tokenize(command:, linum:)
     (command !~ COMMAND_PATTERN) &&
-      (raise ParsingError, %(Invalid syntax: "#{command.chomp}"))
+      (raise ParsingError, %(line #{linum}: Invalid syntax: "#{command.chomp}"))
 
     command.scan(TOKENIZER).flatten
   end
 
-  def self.get(command)
-    result = all[command.to_sym]
-    raise ParsingError, %(Unknown command "#{command}") if result.nil?
-
-    result
-  end
-
   def self.all
-    [arithmetic, logical, mem_access, branching, function].flatten.reduce(&:merge).freeze
+    [arithmetic, logical, mem_access, branching, function] \
+      .flatten.reduce(&:merge).freeze
   end
 
   def self.arithmetic
     {
       add: lambda do
         vputs 'Adding x to y'
+        <<~ADD
+          @SP
+          AM = M - 1
+          D = M
+          A = A - 1
+          M = D + M
+        ADD
       end,
       sub: lambda do
         vputs 'Subtracting y from x'
+        <<~SUB
+          @SP
+          AM = M - 1
+          D = M
+          A = A - 1
+          M = M - D
+        SUB
       end,
       neg: lambda do
         vputs 'Negating x'
+        <<~NEG
+          @SP
+          A = M - 1
+          M = -M
+        NEG
       end
     }
   end
@@ -93,23 +126,86 @@ module COMMANDS
     {
       eq: lambda do
         vputs 'Equality test: x == 0'
+        Parser.n_cmps += 1
+        <<~EQ
+          @SP
+          AM = M - 1
+          D = M
+          A = A - 1
+          D = D - M
+          M = -1
+          @EQ#{Parser.n_cmps}
+          D;JEQ
+          @SP
+          A = M - 1
+          M = 0
+          (EQ#{Parser.n_cmps})
+        EQ
       end,
       gt: lambda do
         vputs 'x > y?'
+        Parser.n_cmps += 1
+        <<~GT
+          @SP
+          AM = M - 1
+          D = M
+          A = A - 1
+          D = D - M
+          M = -1
+          @GT#{Parser.n_cmps}
+          D;JGT
+          @SP
+          A = M - 1
+          M = 0
+          (GT#{Parser.n_cmps})
+        GT
       end,
       lt: lambda do
         vputs 'x < y?'
+        Parser.n_cmps += 1
+        <<~LT
+          @SP
+          AM = M - 1
+          D = M
+          A = A - 1
+          D = D - M
+          M = -1
+          @LT#{Parser.n_cmps}
+          D;JLT
+          @SP
+          A = M - 1
+          M = 0
+          (LT#{Parser.n_cmps})
+        LT
       end,
       and: lambda do
-        vputs 'x && y?'
+        vputs 'x & y'
+        <<~AND
+          @SP
+          AM = M - 1
+          D = M
+          A = A - 1
+          M = D & M
+        AND
       end,
       or: lambda do
-        vputs 'x || y?'
+        vputs 'x | y'
+        <<~OR
+          @SP
+          AM = M - 1
+          D = M
+          A = A - 1
+          M = D | M
+        OR
       end,
       not: lambda do
-        vputs '!x?'
+        vputs '!x'
+        <<~NOT
+          @SP
+          A = M - 1
+          M = !M
+        NOT
       end
-
     }
   end
 
@@ -117,9 +213,86 @@ module COMMANDS
     {
       pop: lambda do |segment, i|
         vputs "Popping to #{segment}: #{i}"
+        raise ParsingError, "line #{Parser.line_num}: Invalid segment #{segment}" unless
+          %w[local argument this that temp pointer static].include?(segment)
+        raise ParsingError, "line #{Parser.line_num}: Invalid pointer #{i}" if
+          segment == 'pointer' && i != '0' && i != '1'
+
+        seg = { local: 'LCL', argument: 'ARG', this: 'THIS', that: 'THAT', temp: 'R5',
+                static: (16 + i.to_i).to_s }[segment.to_sym]
+        i = (i.to_i + 5).to_s if segment == 'temp'
+        out = +''
+        if segment == 'pointer'
+          out << if i == '0'
+                   "@THIS\n"
+                 else
+                   "@THAT\n"
+                 end
+          out << "D = A\n"
+        else
+          out << <<~NPTRPOP
+            @#{seg}
+            D = M
+            @#{i}
+            D = D + A
+          NPTRPOP
+        end
+        return out << <<~POPFIN
+          @R13
+          M = D
+          @SP
+          AM = M - 1
+          D = M
+          @R13
+          A = M
+          M = D
+        POPFIN
       end,
       push: lambda do |segment, i|
         vputs "Pushing #{segment}: #{i}"
+        raise ParsingError, "line #{Parser.line_num}: Invalid segment #{segment}" unless
+          %w[constant local argument this that temp pointer static].include?(segment)
+        raise ParsingError, "line #{Parser.line_num}: Invalid pointer #{i}" if
+          segment == 'pointer' && i != '0' && i != '1'
+
+        seg = { local: 'LCL', argument: 'ARG', this: 'THIS', that: 'THAT', temp: 'R5',
+                static: (16 + i.to_i).to_s }[segment.to_sym]
+        if segment == 'constant'
+          return <<~PUSHCONST
+            @#{i}
+            D = A
+            @SP
+            AM = M + 1
+            A = A - 1
+            M = D
+          PUSHCONST
+        end
+
+        i = (i.to_i + 5).to_s if segment == 'temp'
+        out = +''
+        out << if segment == 'pointer'
+                 if i == '0'
+                   "@THIS\n"
+                 else
+                   "@THAT\n"
+                 end
+               else
+                 "@#{seg}\n"
+               end
+        out << "D = M\n"
+        if segment != 'pointer'
+          out << <<~NPTRPUSH
+            @#{i}
+            A = A + D
+            D = M
+          NPTRPUSH
+        end
+        return out << <<~PUSHFIN
+          @SP
+          AM = M + 1
+          A = A - 1
+          M = D
+        PUSHFIN
       end
     }
   end
@@ -160,12 +333,18 @@ class Parser
 
     def parse(file:)
       file.each do |line|
-        puts line
+        vputs line
         begin
-          translate(str: @str, command: line, linum: @line_num)
+          if !%r{^//.*$}.match?(line)
+            translate(command: line, linum: @line_num)
+          else
+            @str << line
+          end
         rescue ParsingError => e
           puts e
+          exit(1)
         end
+        vp @str
         @line_num += 1
       end
     end
@@ -176,7 +355,7 @@ class Parser
       @n_cmps = 0
     end
   end
-  @str = ''
+  @str = +''
   MEM_MAP = {
     SP: 0,
     LCL: 1,
@@ -192,22 +371,31 @@ class Parser
   @n_cmps = 0
 end
 
-def translate(str:, command:, linum: 0)
+def translate(command:, linum: 0)
   # TODO
-  str << "// #{command}\n"
-  tokens = COMMANDS.tokenize(command)
+  comment_i = command.index %r{//.*}
+  comment = ''
+  if comment_i
+    comment = command[comment_i..-1]
+    command = command[0...comment_i]
+  end
+  return comment if /^\s+$/.match?(command)
+
+  Parser.str << "// #{command}"
+  tokens = COMMANDS.tokenize(command: command, linum: linum)
   command = tokens.shift
   translation = COMMANDS.all[command.to_sym]
-  raise ParsingError, %(Command not found: "#{command}") if translation.nil?
+  raise ParsingError, %(line #{linum}: Command not found: "#{command}") if
+    translation.nil?
 
   begin
     translation = translation.call(*tokens)
   rescue ArgumentError
-    raise ParsingError, %(line #{linum}: in call to "#{command}": ) <<
+    raise ParsingError, +%(line #{linum}: in call to "#{command}": ) <<
                         %(Invalid number of arguments ) <<
                         %[(#{tokens.size}, expected #{translation.parameters.size})]
   end
-  puts translation
+  str << translation << comment unless translation.nil?
 end
 
 parse_cli_args
@@ -220,3 +408,5 @@ puts
 file = Options.in_f
 lines = IO.readlines(file)
 Parser.parse(file: lines)
+puts Parser.str
+File.open(Options.out_f, 'w') { |f| f.write(Parser.str) }
