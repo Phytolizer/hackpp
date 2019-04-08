@@ -1,12 +1,9 @@
-push constant 3
-push constant 3
-eq
-push constant 3
 push constant 2
-eq
-push constant 3
-push constant 4
-gt
-push constant 6
+push local 0
+sub
+push local 1
 push constant 5
-gt
+add
+sub
+pop local 2
+push
