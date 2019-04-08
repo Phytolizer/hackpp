@@ -372,7 +372,6 @@ class Parser
 end
 
 def translate(command:, linum: 0)
-  # TODO
   comment_i = command.index %r{//.*}
   comment = ''
   if comment_i
