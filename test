@@ -1,26 +1,12 @@
-#GOTO :main
-
-// test comment
-#DEF :mult
-    #SET @15 :0
-    #SET @2 @0
-    #LOOPGT @2 :0
-        #ADD @15 @1
-        #SUB @2 :1
-    #ENDLOOP
-#ENDDEF
-
-(main)
-#SET @0 :4
-#SET @1 :6
-#CALL :mult
-
-#IFEQ @15 :24
-    #SET @accurate :1
-#ELSE
-    #SET @accurate :0
-#ENDIF
-
-// end of program, prevent PC overflow
-#LOOP
-#ENDLOOP
+push constant 3
+push constant 3
+eq
+push constant 3
+push constant 2
+eq
+push constant 3
+push constant 4
+gt
+push constant 6
+push constant 5
+gt
