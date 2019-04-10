@@ -1,8 +1,28 @@
-push constant 2
-push local 0
-sub
+function Foo#main 4
+push constant 19
+push constant 3
+pop local 3
+push local 3
+call Bar#mult 2
+neg
+goto END
+
+function Bar#mult 2
+label Bar#mult$loop
+push argument 1
+push constant 0
+eq
+if-goto Bar#mult$end
 push local 1
-push constant 5
+push argument 0
 add
+pop local 1
+push argument 1
+push constant 0
 sub
-pop local 2
+pop argument 1
+label Bar#mult$end
+push local 1
+return
+
+label END
