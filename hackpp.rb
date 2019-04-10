@@ -75,7 +75,7 @@ end
 # validate syntax.
 module COMMANDS
   COMMAND_PATTERN = /[\w\-\h]+/.freeze
-  TOKENIZER = /([\w\-]+)\h*/.freeze
+  TOKENIZER = /(\S+)\h*/.freeze
 
   def self.tokenize(command:, linum:)
     (command !~ COMMAND_PATTERN) &&
@@ -213,10 +213,8 @@ module COMMANDS
     {
       pop: lambda do |segment, i|
         vputs "Popping to #{segment}: #{i}"
-        raise ParsingError, "line #{Parser.line_num}: Invalid segment #{segment}" unless
-          %w[local argument this that temp pointer static].include?(segment)
-        raise ParsingError, "line #{Parser.line_num}: Invalid pointer #{i}" if
-          segment == 'pointer' && i != '0' && i != '1'
+        raise ParsingError, "line #{Parser.line_num}: Invalid segment #{segment}" unless %w[local argument this that temp pointer static].include?(segment)
+        raise ParsingError, "line #{Parser.line_num}: Invalid pointer #{i}" if segment == 'pointer' && i != '0' && i != '1'
 
         seg = { local: 'LCL', argument: 'ARG', this: 'THIS', that: 'THAT', temp: 'R5',
                 static: (16 + i.to_i).to_s }[segment.to_sym]
@@ -250,10 +248,8 @@ module COMMANDS
       end,
       push: lambda do |segment, i|
         vputs "Pushing #{segment}: #{i}"
-        raise ParsingError, "line #{Parser.line_num}: Invalid segment #{segment}" unless
-          %w[constant local argument this that temp pointer static].include?(segment)
-        raise ParsingError, "line #{Parser.line_num}: Invalid pointer #{i}" if
-          segment == 'pointer' && i != '0' && i != '1'
+        raise ParsingError, "line #{Parser.line_num}: Invalid segment #{segment}" unless %w[constant local argument this that temp pointer static].include?(segment)
+        raise ParsingError, "line #{Parser.line_num}: Invalid pointer #{i}" if segment == 'pointer' && i != '0' && i != '1'
 
         seg = { local: 'LCL', argument: 'ARG', this: 'THIS', that: 'THAT', temp: 'R5',
                 static: (16 + i.to_i).to_s }[segment.to_sym]
@@ -301,26 +297,122 @@ module COMMANDS
     {
       label: lambda do |label|
         vputs "Defining label #{label}"
+        <<~LABEL
+          (#{label})
+        LABEL
       end,
       goto: lambda do |label|
         vputs "going to #{label}"
+        <<~GOTO
+          @#{label}
+          0;JMP
+        GOTO
       end,
-      'if-goto' => lambda do |label|
+      'if-goto'.to_sym => lambda do |label|
         vputs "going to #{label} conditionally"
+        <<~IFGOTO
+          @SP
+          A = M - 1
+          D = M
+          @#{label}
+          D;JLT
+        IFGOTO
       end
     }
   end
 
   def self.function
     {
-      function: lambda do |name, nargs|
-        vputs "Defining function #{name} with #{nargs} args"
+      function: lambda do |name, nvars|
+        vputs "Defining function #{name} with #{nvars} vars"
+        out = +<<~FUNC
+          (#{name})
+        FUNC
+        nvars.to_i.times do
+          out << <<~PUSHLCL
+            @SP
+            AM = M + 1
+            A = A - 1
+            M = 0
+          PUSHLCL
+        end
+        out
       end,
       call: lambda do |function, nargs|
         vputs "Calling function #{function} with #{nargs} args"
+        # Set ARG to (sp - nArgs)
+        # Push ret-addr, LCL, ARG, THIS, THAT to stack
+        # Jump
+        Parser.n_calls[function] += 1
+        out = +''
+        (["#{function}$ret.#{Parser.n_calls[function]}"] <<
+          %w[LCL ARG THIS THAT]).each do |save|
+          out << <<~SAVE
+            @#{save}
+            D = A
+            @SP
+            AM = M + 1
+            A = A - 1
+            M = D
+          SAVE
+        end
+        out << <<~CALL
+          @SP
+          D = M
+          @#{nargs}
+          D = D - A
+          @5
+          D = D - A
+          @ARG
+          M = D
+          @SP
+          D = M
+          @LCL
+          M = D
+          @#{function}
+          0;JMP
+          (ret#{Parser.n_calls})
+        CALL
       end,
       return: lambda do
         vputs 'Returning from function'
+        <<~RETURN
+          @SP
+          AM = M - 1
+          D = M
+          @ARG
+          A = M
+          M = D
+          D = A
+          @SP
+          M = D + 1
+          @LCL
+          D = M - 1
+          @R13
+          AM = D
+          D = M
+          @THAT
+          M = D
+          @R13
+          AM = M - 1
+          D = M
+          @THIS
+          M = D
+          @R13
+          AM = M - 1
+          D = M
+          @ARG
+          M = D
+          @R13
+          AM = M - 1
+          D = M
+          @LCL
+          M = D
+          @R13
+          A = M - 1
+          A = M
+          0;JMP
+        RETURN
       end
     }
   end
@@ -329,7 +421,7 @@ end
 # The main parser for Hack VM.
 class Parser
   class << self
-    attr_accessor :str, :line_num, :n_cmps
+    attr_accessor :str, :line_num, :n_cmps, :n_calls
 
     def parse(file:)
       file.each do |line|
@@ -353,6 +445,7 @@ class Parser
       @str = ''
       @line_num = 1
       @n_cmps = 0
+      @n_calls = Hash.new(0)
     end
   end
   @str = +''
@@ -369,6 +462,7 @@ class Parser
   }.freeze
   @line_num = 1
   @n_cmps = 0
+  @n_calls = Hash.new(0)
 end
 
 def translate(command:, linum: 0)
@@ -384,8 +478,7 @@ def translate(command:, linum: 0)
   tokens = COMMANDS.tokenize(command: command, linum: linum)
   command = tokens.shift
   translation = COMMANDS.all[command.to_sym]
-  raise ParsingError, %(line #{linum}: Command not found: "#{command}") if
-    translation.nil?
+  raise ParsingError, %(line #{linum}: Command not found: "#{command}") if translation.nil?
 
   begin
     translation = translation.call(*tokens)
