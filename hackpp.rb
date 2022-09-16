@@ -1,552 +1,537 @@
-# frozen_string_literal: true
+# A Hack assembly pre-processor. Provides several macros
+# for convenience when writing code.
+#
+# Author: Kyle Coffey
 
-# VMEmulator.rb
-# Written by Kyle Coffey (UIN: 126007313)
-# Class: CSCE 312, section 511 (Tyagi)
-# Ruby string literal directive below. Forces strings assigned with string literals to be immutable, as this
-# is how future Ruby versions will do it.
-# frozen_string_literal: true
+require 'pathname'
 
-class ParsingError < RuntimeError
-end
+# Exceptions
+class TokenError < StandardError; end
 
-def parse_cli_args
-  skip = false
-  # need to keep track of index to use the -o flag properly
-  ARGV.each_with_index do |arg, i|
-    if skip
-      skip = false
-      next
+class Token
+  def initialize(value)
+    @type = token_type(value)
+    if @type.nil?
+      raise TokenError, "Token #{value} is invalid (must start with !, @, or $"
     end
-    if arg.start_with?('-')
-      # this argument is a flag or set of flags (e.g. -vo, or "verbose, specify output file")
-      flags = arg[1..-1]
-      flags.each_char do |f|
-        case f
-        when 'o'
-          Options.out_f = ARGV[i + 1]
-          skip = true
-        when 'v'
-          puts 'Running in verbose mode.'
-          Options.verbose = true
-        when 'h'
-          print_help(long: true)
-        else
-          raise ParsingError, %(Invalid option "#{ARGV[i]}")
-        end
-      end
-    else
-      # print help if you try to pass in two input files, as that probably
-      # indicates you missed a hyphen or something similar
-      print_help unless Options.in_f.nil?
-      Options.in_f = arg
+    @value = value[1..-1]
+    if @value.empty?
+      raise TokenError, "Token #{value} is invalid (needs a value)"
     end
   end
-  # input file is the only required argument
-  print_help if Options.in_f.nil?
 end
 
-def print_help(long: false)
-  if long
-    puts <<~LONGHELP
-      ruby #{$PROGRAM_NAME} -- Converts Hack VM code into Hack ASM. Written by Kyle Coffey.
-      Usage: ruby #{$PROGRAM_NAME} [-v] filename [-o outputfile]
-      Options:
-        -h   Print this help message.
-        -v   Enable verbose output.
-        -o outputfile   Store output in outputfile. Default: output.asm
-    LONGHELP
-  else
-    puts <<~HELP
-      Usage: ruby #{$PROGRAM_NAME} [-v] filename [-o outputfile]
-      Type "ruby #{$PROGRAM_NAME} -h" for more information.
-    HELP
-  end
-  exit(0)
+# check properties of a token
+def macro? x
+  x[0] == '!'
 end
 
-# Command-line options, stored in a class
-class Options
-  class << self
-    attr_accessor :verbose, :in_f, :out_f
-  end
-
-  # flag to enable verbose output
-  @verbose = false
-  # the name of the input file
-  @in_f = nil
-  @out_f = 'output.asm'
-end
-
-# pseudo-alias for Kernel#puts, but only works if the verbose flag was set
-def vputs(*args)
-  puts(*args) if Options.verbose
-end
-
-# same as vputs, but for Kernel#p
-def vp(*args)
-  p(*args) if Options.verbose
-end
-
-# Contains methods for all transformations involved
-# when parsing Hack VM code as well as some helper methods to
-# validate syntax.
-module COMMANDS
-  # Object#freeze: makes an object immutable for efficiency's sake
-  COMMAND_PATTERN = /[\w\-\h]+/.freeze
-  TOKENIZER = /(\S+)\h*/.freeze
-
-  # Convert a string into an array of its space-separated "tokens".
-  def self.tokenize(command:, linum:)
-    unless COMMAND_PATTERN.match?(command)
-      # this %() symbol denotes a string literal that allows both interpolation (the #{} construct)
-      # and using unescaped double quotes. Single-quoted strings in Ruby are like raw strings in Python, so
-      # I cannot use those.
-      raise ParsingError, %(line #{linum}: Invalid syntax: "#{command.chomp}")
-    end
-
-    # String#scan will return an array with all regexp matches in the string, since the regexp uses
-    # capture groups I have to also flatten the array (it is initially structured like [[match1],[match2],...])
-    command.scan(TOKENIZER).flatten
-  end
-
-  # all of the valid Hack VM commands combined with the ASM substitutions as lambdas
-  def self.all
-    [arithmetic, logical, mem_access, branching, function] \
-      .flatten.reduce(&:merge).freeze
-  end
-
-  def self.arithmetic
-    {
-      add: lambda do
-        vputs 'Adding x to y'
-        # Multi-line string literal. Indentation is removed by the Ruby interpreter.
-        <<~ADD
-          @SP
-          AM = M - 1
-          D = M
-          A = A - 1
-          M = D + M
-        ADD
-      end,
-      sub: lambda do
-             vputs 'Subtracting y from x'
-             <<~SUB
-               @SP
-               AM = M - 1
-               D = M
-               A = A - 1
-               M = M - D
-             SUB
-           end,
-      neg: lambda do
-             vputs 'Negating x'
-             <<~NEG
-               @SP
-               A = M - 1
-               M = -M
-             NEG
-           end
-    }
-  end
-
-  def self.logical
-    {
-      eq: lambda do
-        vputs 'x == y?'
-        Parser.n_cmps += 1
-        <<~EQ
-          @SP
-          AM = M - 1
-          D = M
-          A = A - 1
-          D = D - M
-          M = -1
-          @EQ#{Parser.n_cmps}
-          D;JEQ
-          @SP
-          A = M - 1
-          M = 0
-          (EQ#{Parser.n_cmps})
-        EQ
-      end,
-      gt: lambda do
-            vputs 'x > y?'
-            Parser.n_cmps += 1
-            <<~GT
-              @SP
-              AM = M - 1
-              D = M
-              A = A - 1
-              D = D - M
-              M = -1
-              @GT#{Parser.n_cmps}
-              D;JGT
-              @SP
-              A = M - 1
-              M = 0
-              (GT#{Parser.n_cmps})
-            GT
-          end,
-      lt: lambda do
-            vputs 'x < y?'
-            Parser.n_cmps += 1
-            <<~LT
-              @SP
-              AM = M - 1
-              D = M
-              A = A - 1
-              D = D - M
-              M = -1
-              @LT#{Parser.n_cmps}
-              D;JLT
-              @SP
-              A = M - 1
-              M = 0
-              (LT#{Parser.n_cmps})
-            LT
-          end,
-      and: lambda do
-             vputs 'x & y'
-             <<~AND
-               @SP
-               AM = M - 1
-               D = M
-               A = A - 1
-               M = D & M
-             AND
-           end,
-      or: lambda do
-            vputs 'x | y'
-            <<~OR
-              @SP
-              AM = M - 1
-              D = M
-              A = A - 1
-              M = D | M
-            OR
-          end,
-      not: lambda do
-             vputs '!x'
-             <<~NOT
-               @SP
-               A = M - 1
-               M = !M
-             NOT
-           end
-    }
-  end
-
-  def self.mem_access
-    {
-      pop: lambda do |segment, i|
-        vputs "Popping to #{segment}: #{i}"
-        # check the segment
-        raise ParsingError, "line #{Parser.line_num}: Invalid segment #{segment}" unless %w[local argument this that temp pointer static].include?(segment)
-        # check ptr index if necessary
-        raise ParsingError, "line #{Parser.line_num}: Invalid pointer #{i}" if segment == 'pointer' && i != '0' && i != '1'
-
-        # convert to Hack's specific alias for the segment
-        # a little trick here is to set temp to start at R5, as that is the temp storage space
-        seg = { local: 'LCL', argument: 'ARG', this: 'THIS', that: 'THAT', temp: 'R5',
-                static: (16 + i.to_i).to_s }[segment.to_sym]
-        i = (i.to_i + 5).to_s if segment == 'temp'
-        out = +''
-        if segment == 'pointer'
-          out << if i == '0'
-                   "@THIS\n"
-                 else
-                   "@THAT\n"
-                 end
-          out << "D = A\n"
-          # D stores address of THIS/THAT
-        else
-          out << <<~NPTRPOP
-            @#{seg}
-            D = M
-            @#{i}
-            D = D + A
-          NPTRPOP
-          # D stores address of (*segment) + i
-        end
-        return out << <<~POPFIN
-          @R13
-          M = D
-          @SP
-          AM = M - 1
-          D = M
-          @R13
-          A = M
-          M = D
-        POPFIN
-      end,
-      push: lambda do |segment, i|
-        # this is similar to pop, pretty much all that differs is the assembly
-        # besides the fact that you can push but not pop constants
-        vputs "Pushing #{segment}: #{i}"
-        raise ParsingError, "line #{Parser.line_num}: Invalid segment #{segment}" unless %w[constant local argument this that temp pointer static].include?(segment)
-        raise ParsingError, "line #{Parser.line_num}: Invalid pointer #{i}" if segment == 'pointer' && i != '0' && i != '1'
-
-        seg = { local: 'LCL', argument: 'ARG', this: 'THIS', that: 'THAT', temp: 'R5',
-                static: (16 + i.to_i).to_s }[segment.to_sym]
-        if segment == 'constant'
-          return <<~PUSHCONST
-            @#{i}
-            D = A
-            @SP
-            AM = M + 1
-            A = A - 1
-            M = D
-          PUSHCONST
-        end
-
-        i = (i.to_i + 5).to_s if segment == 'temp'
-        # using +'' rather than '' makes the string mutable since it's built over time
-        out = +if segment == 'pointer'
-                 if i == '0'
-                   "@THIS\n"
-                 else
-                   "@THAT\n"
-                 end
-               else
-                 "@#{seg}\n"
-               end
-        out << "D = M\n"
-        if segment != 'pointer'
-          out << <<~NPTRPUSH
-            @#{i}
-            A = A + D
-            D = M
-          NPTRPUSH
-        end
-        return out << <<~PUSHFIN
-          @SP
-          AM = M + 1
-          A = A - 1
-          M = D
-        PUSHFIN
-      end
-    }
-  end
-
-  # this is project 8 stuff
-  def self.branching
-    {
-      label: lambda do |label|
-        vputs "Defining label #{label}"
-        <<~LABEL
-          (#{label})
-        LABEL
-      end,
-      goto: lambda do |label|
-        vputs "going to #{label}"
-        <<~GOTO
-          @#{label}
-          0;JMP
-        GOTO
-      end,
-    # have to use old Ruby hash-rocket syntax because if-goto contains a hyphen
-      'if-goto'.to_sym => lambda do |label|
-        vputs "going to #{label} conditionally"
-        <<~IFGOTO
-          @SP
-          A = M - 1
-          D = M
-          @#{label}
-          D;JLT
-        IFGOTO
-      end
-    }
-  end
-
-  # also project 8
-  def self.function
-    {
-      function: lambda do |name, nvars|
-        vputs "Defining function #{name} with #{nvars} vars"
-        out = +<<~FUNC
-          (#{name})
-        FUNC
-        nvars.to_i.times do
-          out << <<~PUSHLCL
-            @SP
-            AM = M + 1
-            A = A - 1
-            M = 0
-          PUSHLCL
-        end
-        out
-      end,
-      call: lambda do |function, nargs|
-        vputs "Calling function #{function} with #{nargs} args"
-        # Set ARG to (sp - nArgs)
-        # Push ret-addr, LCL, ARG, THIS, THAT to stack
-        # Jump
-        Parser.n_calls[function] += 1
-        out = +''
-        (["#{function}$ret.#{Parser.n_calls[function]}"] <<
-          %w[LCL ARG THIS THAT]).each do |save|
-          out << <<~SAVE
-            @#{save}
-            D = A
-            @SP
-            AM = M + 1
-            A = A - 1
-            M = D
-          SAVE
-        end
-        out << <<~CALL
-          @SP
-          D = M
-          @#{nargs}
-          D = D - A
-          @5
-          D = D - A
-          @ARG
-          M = D
-          @SP
-          D = M
-          @LCL
-          M = D
-          @#{function}
-          0;JMP
-          (ret#{Parser.n_calls})
-        CALL
-      end,
-      return: lambda do
-        vputs 'Returning from function'
-        <<~RETURN
-          @SP
-          AM = M - 1
-          D = M
-          @ARG
-          A = M
-          M = D
-          D = A
-          @SP
-          M = D + 1
-          @LCL
-          D = M - 1
-          @R13
-          AM = D
-          D = M
-          @THAT
-          M = D
-          @R13
-          AM = M - 1
-          D = M
-          @THIS
-          M = D
-          @R13
-          AM = M - 1
-          D = M
-          @ARG
-          M = D
-          @R13
-          AM = M - 1
-          D = M
-          @LCL
-          M = D
-          @R13
-          A = M - 1
-          A = M
-          0;JMP
-        RETURN
-      end
-    }
+def token_type(token)
+  case token[0]
+  when '!' then :macro
+  when '@' then :address
+  when '$' then :literal
+  else nil
   end
 end
 
-# The main parser for Hack VM.
 class Parser
-  class << self
-    attr_accessor :str, :line_num, :n_cmps, :n_calls
+  def initialize(file_name)
+  end
+end
 
-    def parse(file:)
-      file.each do |line|
-        vputs line
-        # this line could throw an exception, but any ParsingError is
-        # fatal anyway
-        translate(command: line, linum: @line_num)
-        vp @str
-        @line_num += 1
+def load_to_d(token, type)
+  "@#{token}
+  D = #{type == :literal ? 'A' : 'M'}"
+end
+
+def load_to_a(token)
+  "@#{token}"
+end
+
+def get_value(val)
+  "#{address?(val) ? '' : '@'}#{literal?(val) ? val[1..-1] : val}"
+end
+
+def a_m(val)
+  "#{literal?(val) ? 'A' : 'M'}"
+end
+
+# The file name to output to
+$output_file = 'result.asm'
+
+# A list of all defined functions
+$functions = []
+
+# Whether the current line is inside a function definition
+$defining_function = false
+
+# The number of function calls, help with unique labels
+$n_calls = 0
+
+# The number of unique infinite loops. Will probably stay at 1 in practice.
+$n_loops = 0
+
+# A list of all defined macros. The parser will check all macros in this list
+# by their :trigger attribute.
+macros = [
+  {
+    name: 'function-define',
+    trigger: '!DEF',
+    args: ['function-name', 'parameters'],
+
+    action: -> name, params {
+      $functions << {
+        name: name,
+        parameters: params
+      }
+      # check for double-define, not supported
+      if $defining_function
+        puts 'ERROR: No support for nested functions'
+        exit 9
       end
-    end
+      $defining_function = true
 
-    def reset
-      @str = ''
-      @line_num = 1
-      @n_cmps = 0
-      @n_calls = Hash.new(0)
+      return <<-FNHEADER
+(#{name})
+      FNHEADER
+    }
+  },
+  {
+    name: 'function-end-definition',
+    trigger: '!ENDDEF',
+    args: [],
+
+    action: -> {
+      $defining_function = false
+      <<-EXITPT
+@ret
+A = M
+0;JMP
+      EXITPT
+    }
+  },
+  {
+    name: 'function-call',
+    trigger: '!CALL',
+    args: ['function-name', 'parameters'],
+    action: -> name, params {
+      func_found = false
+      $functions.each do |f|
+        next unless f[:name] == name
+
+        if f[:parameters].length < params.length
+          puts "ERROR: in call to function #{f[:name]}:"
+          puts '    incorrect number of parameters ' \
+               "(#{params.length}, expected #{f[:parameters].length})"
+          exit 7
+        end
+        func_found = true
+      end
+      unless func_found
+        puts "ERROR: Undefined function: #{name}"
+        exit 8
+      end
+      $n_calls += 1
+      call_str = <<-CALLSTART
+@RET#{$n_calls}
+D = A
+@ret
+M = D
+      CALLSTART
+      param_index = 0
+      if params.respond_to? :each
+        params.each do |p|
+          call_str << <<-CALLPARAM
+#{load_to_d(p)}
+@#{param_index}
+M = D
+          CALLPARAM
+          param_index += 1
+        end
+      elsif !params.nil?
+        call_str << <<-CALLPARAM
+#{load_to_d(params)}
+@#{param_index}
+M = D
+        CALLPARAM
+      end
+      call_str << <<-CALLEND
+@#{name}
+0;JMP
+(RET#{$n_calls})
+      CALLEND
+      return call_str
+    }
+  },
+  {
+    name: 'infinite-loop',
+    trigger: '!LOOP',
+    args: [],
+    
+    action: -> {
+      $n_loops += 1
+      return <<-LOOP
+(LOOP#{$n_loops})
+@LOOP#{$n_loops}
+0;JMP
+      LOOP
+    }
+  },
+  {
+    name: 'set-identifier',
+    trigger: '!SET',
+    args: ['ident', 'value'],
+
+    action: -> i, v {
+      if literal?(i) || macro?(i)
+        puts 'ERROR: Cannot assign to literals/macros'
+        exit 10
+      end
+      if macro? v
+        puts 'ERROR: Cannot assign from macros'
+        exit 11
+      end
+      output = ''
+      # load v into D
+      output << load_to_d(v) << "\n"
+      # load i from D
+      output << get_value(i) << "\nM = D\n"
+      return output
+    }
+  },
+  {
+    name: 'goto',
+    trigger: '!GOTO',
+    args: ['location'],
+
+    action: -> loc {
+      return <<-GOTO
+@#{loc}
+0;JMP
+      GOTO
+    }
+  },
+  {
+    name: 'add',
+    trigger: '!ADD',
+    args: ['destination', 'amount'],
+
+    action: -> dest, amt {
+      if literal?(dest) || macro?(dest)
+        puts 'ERROR: Cannot assign to literals/macros'
+        exit 10
+      end
+      if macro?(amt)
+        puts 'ERROR: Cannot assign from macros'
+        exit 11
+      end
+      return load_to_d(amt) << "\n" << get_value(dest) << "\nM = M + D\n"
+    }
+  },
+  {
+    name: 'subtract',
+    trigger: '!SUB',
+    args: ['destination', 'amount'],
+
+    action: -> dest, amt {
+      if literal?(dest) || macro?(dest)
+        puts 'ERROR: Cannot assign to literals/macros'
+        exit 10
+      end
+      if macro?(amt)
+        puts 'ERROR: Cannot assign from macros'
+        exit 11
+      end
+      return load_to_d(amt) << "\n" << get_value(dest) << "\nM = M - D\n"
+    }
+  },
+  {
+    name: 'loop-while-nonzero',
+    trigger: '!WHILENZ',
+    args: ['value'],
+
+    action: -> v {
+      if macro?(v)
+        puts 'ERROR: Macros cannot have values'
+        exit 12
+      elsif literal?(v)
+        puts 'ERROR: While-loops don\'t take literals; consider using !LOOP'
+        exit 13
+      end
+      output = ''
+      $n_loops += 1
+      return <<-WHILEHEAD
+(WHILE#{$n_loops})
+#{get_value(v)}
+D = M
+@ENDWHILE#{$n_loops}
+D;JEQ
+      WHILEHEAD
+    }
+  },
+  {
+    name: 'loop-while-zero',
+    trigger: '!WHILEZR',
+    args: ['value'],
+
+    action: -> v {
+      if macro?(v)
+        puts 'ERROR: Macros cannot have values'
+        exit 12
+      elsif literal?(v)
+        puts 'ERROR: While-loops don\'t take literals; consider using !LOOP'
+        exit 13
+      end
+      output = ''
+      $n_loops += 1
+      return <<-WHILEHEAD
+(WHILE#{$n_loops})
+#{get_value(v)}
+D = M
+@ENDWHILE#{$n_loops}
+D;JNE
+      WHILEHEAD
+    }
+  },
+  {
+    name: 'while-less-than',
+    trigger: '!WHILELT',
+    args: ['x', 'y'],
+
+    action: -> x, y {
+      # y - x;JLE
+      if macro?(y) || macro?(x)
+        puts 'ERROR: Macros cannot have values'
+        exit 12
+      end
+      $n_loops += 1
+      return <<-WHILELT
+(WHILE#{$n_loops})
+#{load_to_d(x)}
+#{get_value(y)}
+D = D - #{a_m(y)}
+@ENDWHILE#{$n_loops}
+D;JGE
+      WHILELT
+    }
+  },
+  {
+    name: 'while-less-than-or-equal',
+    trigger: '!WHILELE',
+    args: ['x', 'y'],
+
+    action: -> x, y {
+      if macro?(y) || macro?(x)
+        puts 'ERROR: Macros cannot have values'
+        exit 12
+      end
+      $n_loops += 1
+      return <<-WHILELE
+(WHILE#{$n_loops})
+#{load_to_d(x)}
+#{get_value(y)}
+D = D - #{a_m(y)}
+@ENDWHILE#{$n_loops}
+D;JGT
+      WHILELE
+    }
+  },
+  {
+    name: 'while-equal',
+    trigger: '!WHILEEQ',
+    args: ['x', 'y'],
+
+    action: -> x, y {
+      if macro?(y) || macro?(x)
+        puts 'ERROR: Macros cannot have values'
+        exit 12
+      end
+      $n_loops += 1
+      return <<-WHILEEQ
+(WHILE#{$n_loops})
+#{load_to_d(x)}
+#{get_value(y)}
+D = D - #{a_m(y)}
+@ENDWHILE#{$n_loops}
+D;JNE
+      WHILEEQ
+    }
+  },
+  {
+    name: 'while-greater-than-or-equal',
+    trigger: '!WHILEGE',
+    args: ['x', 'y'],
+
+    action: -> x, y {
+      if macro?(y) || macro?(x)
+        puts 'ERROR: Macros cannot have values'
+        exit 12
+      end
+      $n_loops += 1
+      return <<-WHILEGE
+(WHILE#{$n_loops})
+#{load_to_d(x)}
+#{get_value(y)}
+D = D - #{a_m(y)}
+@ENDWHILE#{$n_loops}
+D;JLT
+      WHILEGE
+    }
+  },
+  {
+    name: 'while-greater-than',
+    trigger: '!WHILEGT',
+    args: ['x', 'y'],
+
+    action: -> x, y {
+      if macro?(y) || macro?(x)
+        puts 'ERROR: Macros cannot have values'
+        exit 12
+      end
+      $n_loops += 1
+      return <<-WHILEGT
+(WHILE#{$n_loops})
+#{load_to_d(x)}
+#{get_value(y)}
+D = D - #{a_m(y)}
+@ENDWHILE#{$n_loops}
+D;JLE
+      WHILEGT
+    }
+  },
+  {
+    name: 'while-not-equal',
+    trigger: '!WHILENE',
+    args: ['x', 'y'],
+
+    action: -> x, y {
+      if macro?(y) || macro?(x)
+        puts 'ERROR: Macros cannot have values'
+        exit 12
+      end
+      $n_loops += 1
+      return <<-WHILENE
+(WHILE#{$n_loops})
+#{load_to_d(x)}
+#{get_value(y)}
+D = D - #{a_m(y)}
+@ENDWHILE#{$n_loops}
+D;JEQ
+      WHILENE
+    }
+  },
+  {
+    name: 'end-while',
+    trigger: '!ENDWHILE',
+    args: [],
+
+    action: -> {
+      <<-ENDWHILE
+@WHILE#{$n_loops}
+0;JMP
+(ENDWHILE#{$n_loops})
+      ENDWHILE
+    }
+  }
+].freeze
+
+arguments = [
+  {
+    name: 'output-file',
+    trigger: '-o',
+    has_argument: true,
+    action: -> f {
+      $output_file = f
+    }
+  }
+].freeze
+
+def parse(line)
+  if line[0] == '!'
+    # Found a macro
+    macro_trigger = line.match(/\S+/).to_s
+    # Check which macro this is
+    macro = nil
+    MACROS.each do |m|
+      macro = m if m[:trigger] == macro_trigger
     end
+    if macro.nil?
+      # This trigger doesn't match any macro
+      puts "ERROR: Undefined macro: #{macro_trigger}"
+      exit 3
+    end
+    puts "Found macro '#{macro[:name]}'"
+    macro_args = line.chomp.split(/(?<=[\S^])[,\s]\s*(?=[\S$])/)
+    macro_args = macro_args[1...macro_args.length]
+    # if macro_args.length < macro[:args].length
+      # puts 'Not enough arguments to macro, missing ' <<
+           # macro[:args][macro_args.length]
+      # exit 6
+    # elsif macro_args.length > macro[:args].length
+    if macro_args.length > macro[:args].length
+      temp = macro_args[0...macro[:args].length - 1]
+      temp << macro_args[macro[:args].length - 1...macro_args.length]
+      macro_args = temp
+    end
+    puts "Arguments: #{macro_args}"
+    $output.write(macro[:action].call(*macro_args))
+  else
+    puts line
+    $output.write(line)
   end
-  # the output of the parser
-  @str = +''
-  # MEM_MAP = {
-  #   SP:      0,
-  #   LCL:     1,
-  #   ARG:     2,
-  #   THIS:    3,
-  #   THAT:    4,
-  #   TEMP:    5..12,
-  #   GENERAL: 13...16,
-  #   STATIC:  16...256,
-  #   STACK:   256...2048
-  # }
-
-  # the current input line number (useful for error messages)
-  @line_num = 1
-  # the number of comparisons done in the VM file so far to ensure labels are always unique
-  @n_cmps = 0
-  @n_calls = Hash.new(0)
 end
 
-def translate(command:, linum: 0)
-  # first, check for comments
-  # any comment is stored in the "comment" variable so it can be preserved
-  comment_i = command.index %r{//.*}
-  comment = ''
-  if comment_i
-    comment = command[comment_i..-1]
-    command = command[0...comment_i]
-  end
-  # return early if there is no code to parse
-  return comment if /^\s+$/.match?(command)
-
-  # leave a comment with the original VM command above each ASM chunk
-  Parser.str << "// #{command}"
-  tokens = COMMANDS.tokenize(command: command, linum: linum)
-  # take first token as "command", the rest are arguments
-  command = tokens.shift
-  # look up in command hash
-  translation = COMMANDS.all[command.to_sym]
-  raise ParsingError, %(line #{linum}: Command not found: "#{command}") if translation.nil?
-
-  begin
-    translation = translation.call(*tokens)
-  rescue ArgumentError
-    raise ParsingError, +%(line #{linum}: in call to "#{command}": ) <<
-                        %(Invalid number of arguments ) <<
-                        %[(#{tokens.size}, expected #{translation.parameters.size})]
-  end
-  # implicit return, leave comments intact
-  str << translation << comment
+# Main procedure
+if ARGV.empty?
+  puts 'Usage: ./hackpp <filename>'
+  exit 0
 end
 
-### Below is the main routine. ###
+# ensure input file is readable
+unless File.exist?(ARGV[0])
+  puts "File not found: #{ARGV[0]}"
+  exit 1
+end
 
-parse_cli_args
-# sets the output file to file_basename.asm iff the input file ends in .vm
-Options.out_f = Options.in_f.gsub(/\.vm$/, '.asm') if Options.in_f =~ /\.vm$/ && Options.out_f == 'output.asm'
-puts
-puts %(Reading from "#{Options.in_f}")
-puts %(Output will be in "#{Options.out_f}")
-puts
+unless File.readable?(ARGV[0])
+  puts "Unable to read #{ARGV[0]}: Permission denied"
+  exit 2
+end
 
-# Read the whole file in one pass
-lines = IO.readlines(Options.in_f)
-Parser.parse(file: lines)
-# Parser stores its output in a member variable @str
-vputs Parser.str
-# write this string to output file
-File.open(Options.out_f, 'w') { |f| f.write(Parser.str) }
+# check other optional args
+(1...ARGV.length).each do |i|
+  arg = ARGV[i]
+  next unless arg[0] == '-'
+
+  argument = nil
+  ARGUMENTS.each do |a|
+    argument = a if a[:trigger] == arg
+  end
+  if argument.nil?
+    puts "Invalid argument: #{arg}"
+    exit 4
+  end
+  if argument[:has_argument]
+    i += 1
+    argument[:action].call(ARGV[i])
+  else
+    argument[:action].call
+  end
+end
+
+# open output file
+unless File.exist?($output_file) && File.writable?($output_file) ||
+       !File.exist?($output_file) && Pathname.new('.').writable?
+  puts "Unable to write to #{$output_file}: Permission denied"
+  exit 5
+end
+$output = File.open($output_file, 'w')
+
+# read input file
+input = File.open(ARGV[0]).read
+# correct line endings in case DOS endings are there
+input.gsub!(/\r\n?/, '\n')
+input.each_line do |line|
+  parse line
+end
