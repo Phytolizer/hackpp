@@ -28,10 +28,11 @@ end
 
 def token_type(token)
   case token[0]
-  when '!' :macro
-  when '@' :address
-  when '$' :literal
+  when '!' then :macro
+  when '@' then :address
+  when '$' then :literal
   else nil
+  end
 end
 
 class Parser
